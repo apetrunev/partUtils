@@ -1,0 +1,39 @@
+#!/bin/bash -ex
+
+disk=$1
+diskPart=./disk.part
+
+test -b $disk || { echo "error: $disk is not a block device"; exit 1; }
+
+# disable devices automount
+xfconf-query -c thunar-volman -p /automount-drives/enabled -s false
+xfconf-query -c thunar-volman -p /automount-media/enabled -s false
+xfconf-query -c thunar-volman -p /autobrowse/enabled -s false
+
+diskName=$(basename $disk | grep -E -o "[a-z]{3}")
+# load mbr to disk
+sudo dd if=./mbr.img of=$disk bs=512 count=1 conv=sync
+partTmp=$(mktemp)
+# replace device name in partition file with the current name 
+sed "s/\/dev\/[a-z]\{3\}/\/dev\/$diskName/g" $diskPart > $partTmp
+# re-create partitions on disk
+./restorePartitions $disk $partTmp
+# umount and format disk partitions
+test -n "$(findmnt /dev/${diskName}1)" && sudo umount /dev/${diskName}1
+test -n "$(findmnt /dev/${diskName}2)" && sudo umount /dev/${diskName}2
+sudo mkfs.vfat /dev/${diskName}1
+sudo mkfs.ext4 -F /dev/${diskName}2
+mkdir -p /tmp/${diskName}1
+mkdir -p /tmp/${diskName}2
+# ensure nothing is mounted to dirs
+test -n "$(findmnt /tmp/${diskName}1)" && sudo unmount /tmp/${diskName}1
+test -n "$(findmnt /tmp/${diskName}2)" && sudo unmount /tmp/${diskName}2
+sudo mount /dev/${diskName}1 /tmp/${diskName}1
+sudo mount /dev/${diskName}2 /tmp/${diskName}2
+sudo tar --xattrs --overwrite --same-owner -xvpf part1.tar.gz -C /tmp/${diskName}1 && sync
+sudo tar --xattrs --overwrite --same-owner -xvpf part2.tar.gz -C /tmp/${diskName}2 && sync
+sudo umount /dev/${diskName}1
+sudo umount /dev/${diskName}2
+sudo rmdir /tmp/${diskName}1
+sudo rmdir /tmp/${diskName}2
+sudo rm $partTmp

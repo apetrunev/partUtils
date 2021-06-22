@@ -1,0 +1,6 @@
+#!/bin/bash -ex 
+
+test -b $1 || { echo "error: $1 is not a block device"; exit 1; }
+# ensure we do not use a partition
+disk=$(echo $1 | grep -E -o "/dev/[a-z]{3}")
+sudo dd if=$disk of=mbr.img bs=512 count=1

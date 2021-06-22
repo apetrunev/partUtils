@@ -1,0 +1,4 @@
+#!/bin/bash -ex 
+
+test -b $1 || { echo "error: $1 is no a block device"; exit 1; } 
+sudo sfdisk -d $1 > disk.part

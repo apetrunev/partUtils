@@ -1,0 +1,79 @@
+#!/bin/bash -x
+
+disk=$(echo $1 | grep -E -o "/dev/[a-z]{3}")
+diskPart=$2
+
+nparts() {
+	test -f $1 || { echo "error: $1 is not a file"; exit 1; } 
+	cat $1 | grep -E "/dev/[a-z]{3}[0-9]+" | \
+	awk ' BEGIN { npart = 0; } END { print npart; } { gsub(/\,/, "", $0); if ($4 != 0) npart++; }'	
+}
+
+disk_npart() {
+	test -b $1 || { echo "error: $1 is not a block device"; exit 1; }
+	sudo fdisk -l $1 | grep -E "$1[0-9]+" | wc -l
+}
+
+# count number of partitions
+npart=$(nparts $diskPart)
+old_npart=$(disk_npart $disk)
+
+cat $diskPart | grep -E "$disk[0-9]{1}" | \
+sed -E -e 's/Id=[[:space:]]*//g' -e 's/type=[[:space:]]*//g' | \
+awk -v npart=$npart -v old_npart=$old_npart '
+BEGIN {
+	idx = 1;
+}
+{
+	gsub(/\,/, "", $0);
+	if ($4 != 0) {
+		part_start[idx] = $4;
+		part_size[idx] = $6;
+		part_type[idx] = $7;
+		idx++;
+	}		
+}
+function new_partition(i, start, size, type, is_last) {
+	/* create new partition */
+	printf("n\n");
+	/* primary */
+	printf("p\n");
+	/* number */
+	printf("%s\n", i);
+	/* start */
+	printf("%s\n", start);
+	if (is_last) {
+		/* for last partition we accept suggested size */
+		printf("\n");
+	} else {
+		/* size */
+		printf("%s\n", size);
+	}
+	/* type */
+	printf("t\n");
+	if (i > 1)
+		printf("%s\n", i);
+	printf("%s\n", type);
+	/* write to disk and exit */
+	if (is_last) {	
+		/* escape timing issue */
+		/* without sleep write is happening too soon */
+		system("sleep 5");
+		printf("w\n");
+	}
+}
+function delete_partitions(npart) {
+	/* delete existing partitions */
+	for (i = 1; i < old_npart; i++) {
+		printf("d\n");
+		printf("%s\n", i);
+	}
+	printf("d\n");
+}
+END {
+	delete_partitions(old_npart);
+	for (i = 1; i < npart; i++) {
+		new_partition(i, part_start[i], part_size[i], part_type[i], 0);
+	}
+	new_partition(npart, part_start[npart], part_size[npart], part_type[npart], 1);
+}' | sudo fdisk $disk && sudo partprobe

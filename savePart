@@ -1,0 +1,19 @@
+#!/bin/bash -ex
+
+part=$1
+part_dir=/tmp/$(basename $part)
+current_dir=$(pwd)
+
+test -d $part_dir || mkdir -p $part_dir
+test -b $part || { echo "error: $part is no a block device"; exit 1; }
+test -n "$(findmnt $part_dir)" && { sudo umount $part_dir; }
+test -n "$(findmnt $part)" && { sudo umount $part; }
+
+# get partition number
+id=$(echo $part | grep -E -o "[[:digit:]]?$")
+
+sudo mount $part $part_dir
+# create archive preserving permissions
+(cd $part_dir; sudo tar --xattrs -cvzpf $current_dir/part${id}.tar.gz *)
+sudo umount $part
+sudo rm -r $part_dir
